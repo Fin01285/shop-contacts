@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="quick" content="yesindex">
+  <title>Storefront Contacts</title>
+  <script src="/client/quick.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f6f6f7;
+      color: #202223;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #e1e3e5;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    header h1 { font-size: 18px; font-weight: 600; flex: 1; }
+    header span { font-size: 22px; }
+
+    .manager-btn {
+      background: none;
+      border: 1px solid #c9cccf;
+      border-radius: 8px;
+      padding: 7px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      color: #6d7175;
+      cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .manager-btn:hover { border-color: #008060; color: #008060; }
+
+    .main { max-width: 760px; margin: 0 auto; padding: 32px 24px; }
+
+    .search-bar {
+      background: #fff;
+      border: 1px solid #e1e3e5;
+      border-radius: 12px;
+      padding: 24px;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 32px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .search-bar input {
+      flex: 1;
+      border: 1px solid #c9cccf;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 15px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .search-bar input:focus { border-color: #008060; box-shadow: 0 0 0 3px rgba(0,128,96,0.12); }
+    .search-bar input::placeholder { color: #8c9196; }
+
+    .btn {
+      background: #008060;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s;
+    }
+    .btn:hover { background: #006e52; }
+    .btn:disabled { background: #8c9196; cursor: not-allowed; }
+
+    .section {
+      background: #fff;
+      border: 1px solid #e1e3e5;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .section h3 {
+      font-size: 15px;
+      font-weight: 600;
+      color: #6d7175;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #e1e3e5;
+    }
+
+    .contact-card {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .contact-card .avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: 50%;
+      background: #f1f8ff;
+      border: 1px solid #c9d8eb;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 17px;
+      font-weight: 600;
+      color: #2c6fad;
+      flex-shrink: 0;
+    }
+    .contact-card .info { flex: 1; min-width: 0; }
+    .contact-card .name { font-size: 15px; font-weight: 600; }
+    .contact-card .email {
+      font-size: 13px;
+      color: #6d7175;
+      margin-top: 2px;
+      word-break: break-all;
+    }
+    .contact-card .meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 5px;
+      flex-wrap: wrap;
+    }
+    .badge {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 500;
+      padding: 2px 8px;
+      border-radius: 20px;
+      background: #e4f4f0;
+      color: #008060;
+      border: 1px solid #b3dfd5;
+    }
+    .badge.owner {
+      background: #fff3cd;
+      color: #916a00;
+      border-color: #f0c95a;
+    }
+    .copy-btn {
+      background: none;
+      border: 1px solid #c9cccf;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+      color: #6d7175;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .copy-btn:hover { border-color: #008060; color: #008060; }
+    .copy-btn.copied { border-color: #008060; color: #008060; }
+
+    .contacts-list { display: flex; flex-direction: column; gap: 0; }
+    .contact-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 0;
+      border-bottom: 1px solid #f1f2f3;
+    }
+    .contact-row:last-child { border-bottom: none; padding-bottom: 0; }
+    .contact-row:first-child { padding-top: 0; }
+    .rank {
+      font-size: 13px;
+      font-weight: 600;
+      color: #8c9196;
+      width: 20px;
+      flex-shrink: 0;
+      text-align: center;
+    }
+
+    .status-msg {
+      text-align: center;
+      padding: 48px 24px;
+      color: #6d7175;
+      font-size: 15px;
+    }
+    .status-msg.error { color: #d82c0d; }
+
+    .spinner {
+      display: inline-block;
+      width: 18px; height: 18px;
+      border: 2px solid #e1e3e5;
+      border-top-color: #008060;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Manager view overlay */
+    .overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.45);
+      z-index: 100;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 40px 24px;
+      overflow-y: auto;
+    }
+    .overlay.open { display: flex; }
+    .overlay-panel {
+      background: #fff;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 640px;
+      padding: 32px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    }
+    .overlay-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+    }
+    .overlay-header h2 { font-size: 18px; font-weight: 700; }
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 22px;
+      cursor: pointer;
+      color: #6d7175;
+      line-height: 1;
+    }
+    .close-btn:hover { color: #202223; }
+
+    /* Bar chart */
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .bar-row:last-child { margin-bottom: 0; }
+    .bar-label {
+      width: 180px;
+      flex-shrink: 0;
+      font-size: 13px;
+      text-align: right;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: #202223;
+    }
+    .bar-track {
+      flex: 1;
+      background: #f1f2f3;
+      border-radius: 4px;
+      height: 24px;
+      overflow: hidden;
+    }
+    .bar-fill {
+      height: 100%;
+      background: #008060;
+      border-radius: 4px;
+      transition: width 0.4s ease;
+      min-width: 4px;
+    }
+    .bar-count {
+      width: 32px;
+      flex-shrink: 0;
+      font-size: 13px;
+      font-weight: 600;
+      color: #6d7175;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <span>👥</span>
+    <h1>Storefront Contacts</h1>
+    <button class="manager-btn" id="managerBtn">📊 Manager view</button>
+  </header>
+
+  <div class="main">
+    <div class="section" style="margin-bottom:24px;font-size:14px;line-height:1.6;">
+      This tool requires the <strong>SDP-PII permit</strong> to access staff contact data.
+      Without it, queries will fail with a 403 error.
+      The permit is valid for <strong>8 hours</strong> — after it expires you'll need to reapply.
+      <a href="https://clouddo.shopify.io/permits?claim=sdp-pii" target="_blank" style="color:#008060;font-weight:500;">Apply for the SDP-PII permit →</a>
+    </div>
+
+    <div class="search-bar">
+      <input id="shopId" type="text" placeholder="Enter Storefront ID (e.g. 80483451215)" autocomplete="off" />
+      <button class="btn" id="lookupBtn">Look up</button>
+    </div>
+    <div id="results"></div>
+  </div>
+
+  <!-- Manager view overlay -->
+  <div class="overlay" id="managerOverlay">
+    <div class="overlay-panel">
+      <div class="overlay-header">
+        <h2>Usage by user</h2>
+        <button class="close-btn" id="closeManagerBtn">✕</button>
+      </div>
+      <div id="managerContent"><div class="status-msg"><span class="spinner"></span>Loading…</div></div>
+    </div>
+  </div>
+
+  <script>
+    const input = document.getElementById('shopId');
+    const btn = document.getElementById('lookupBtn');
+    const results = document.getElementById('results');
+    const managerBtn = document.getElementById('managerBtn');
+    const managerOverlay = document.getElementById('managerOverlay');
+    const closeManagerBtn = document.getElementById('closeManagerBtn');
+    const managerContent = document.getElementById('managerContent');
+
+    const usageCollection = quick.db.collection('usage_events');
+
+    function initials(name) {
+      return (name || '?').split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase();
+    }
+
+    function copyContact(btn, row) {
+      const text = [row.name, row.email].filter(Boolean).join('\n');
+      navigator.clipboard.writeText(text).then(() => {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+      });
+    }
+
+    function renderOwner(row) {
+      const idx = ownerCopyIndex++;
+      window._copyRows = window._copyRows || {};
+      window._copyRows[idx] = row;
+      return `
+        <div class="section">
+          <h3>Account Owner</h3>
+          <div class="contact-card">
+            <div class="avatar">${initials(row.name)}</div>
+            <div class="info">
+              <div class="name">${row.name || '—'}</div>
+              <div class="email">${row.email || '—'}</div>
+              <div class="meta">
+                <span class="badge owner">${row.account_type || 'Owner'}</span>
+              </div>
+            </div>
+            <button class="copy-btn" onclick="copyContact(this, window._copyRows[${idx}])">Copy</button>
+          </div>
+        </div>`;
+    }
+
+    function renderContacts(rows) {
+      if (!rows.length) {
+        return `<div class="section"><h3>Recent Contacts</h3><p style="color:#8c9196;font-size:14px;">No other staff found for this storefront.</p></div>`;
+      }
+      const items = rows.map((row, i) => {
+        const idx = ownerCopyIndex++;
+        window._copyRows[idx] = row;
+        return `
+        <div class="contact-row">
+          <div class="rank">${i + 1}</div>
+          <div class="avatar" style="width:36px;height:36px;font-size:14px;">${initials(row.name)}</div>
+          <div class="info">
+            <div class="name">${row.name || '—'}</div>
+            <div class="email">${row.email || '—'}</div>
+            <div class="meta">
+              <span class="badge">${row.account_type || '—'}</span>
+            </div>
+          </div>
+          <button class="copy-btn" onclick="copyContact(this, window._copyRows[${idx}])">Copy</button>
+        </div>`;
+      }).join('');
+      return `
+        <div class="section">
+          <h3>Recently Signed In (up to 5)</h3>
+          <div class="contacts-list">${items}</div>
+        </div>`;
+    }
+
+    let ownerCopyIndex = 0;
+
+    async function lookup() {
+      const shopId = input.value.trim();
+      if (!shopId) return;
+
+      ownerCopyIndex = 0;
+      window._copyRows = {};
+      btn.disabled = true;
+      results.innerHTML = `<div class="status-msg"><span class="spinner"></span>Looking up contacts…</div>`;
+
+      try {
+        await quick.auth.requestScopes(['https://www.googleapis.com/auth/bigquery']);
+
+        const shopIdInt = parseInt(shopId, 10);
+        const table = '`shopify-dw.accounts_and_administration.admin_shop_users_history`';
+        const profileTable = '`shopify-dw.accounts_and_administration.shop_profile_current`';
+
+        const [ownerResult, contactsResult, profileResult] = await Promise.all([
+          quick.dw.queryAndWait(
+            `SELECT first_name, last_name, email, is_account_owner, user_type
+             FROM ${table}
+             WHERE shop_id = ${shopIdInt}
+               AND is_account_owner = TRUE
+             GROUP BY first_name, last_name, email, is_account_owner, user_type
+             LIMIT 1`
+          ),
+          quick.dw.queryAndWait(
+            `SELECT first_name, last_name, email, is_account_owner, user_type
+             FROM ${table}
+             WHERE shop_id = ${shopIdInt}
+               AND is_account_owner = FALSE
+             GROUP BY first_name, last_name, email, is_account_owner, user_type
+             ORDER BY MAX(last_login_at) DESC
+             LIMIT 5`
+          ),
+          quick.dw.queryAndWait(
+            `SELECT name
+             FROM ${profileTable}
+             WHERE shop_id = ${shopIdInt}
+             LIMIT 1`
+          ),
+        ]);
+
+        const ownerRows = ownerResult.results || [];
+        const contactRows = contactsResult.results || [];
+        const shopName = profileResult.results?.[0]?.name || null;
+
+        if (!ownerRows.length && !contactRows.length) {
+          results.innerHTML = `<div class="status-msg error">No staff found for storefront ID <strong>${shopId}</strong>.</div>`;
+          return;
+        }
+
+        // Log usage
+        const user = await quick.id.waitForUser();
+        usageCollection.create({
+          user_email: user.email,
+          user_name:  user.fullName || user.email,
+          shop_id:    shopId,
+          ts:         Date.now(),
+        }).catch(() => {});
+
+        function mapRow(row) {
+          const name = [row.first_name, row.last_name].filter(Boolean).join(' ') || null;
+          return {
+            name:         name,
+            email:        row.email || null,
+            account_type: row.is_account_owner ? 'owner' : (row.user_type || 'staff'),
+          };
+        }
+
+        const ownerRow = ownerRows.length ? mapRow(ownerRows[0]) : null;
+        const contacts = contactRows.map(mapRow);
+
+        const internalUrl = `https://app.shopify.com/services/internal/shops/${shopId}`;
+        results.innerHTML =
+          `<div style="margin-bottom:24px;">
+            ${shopName ? `<h2 style="font-size:20px;font-weight:700;margin-bottom:6px;">${shopName}</h2>` : ''}
+            <a href="${internalUrl}" target="_blank" style="color:#008060;font-weight:500;font-size:14px;">View merchant internal →</a>
+          </div>` +
+          (ownerRow ? renderOwner(ownerRow) : '') +
+          renderContacts(contacts);
+
+      } catch (err) {
+        console.error('BQ error:', err);
+        const detail = err?.message || err?.error?.message || JSON.stringify(err);
+        results.innerHTML = `<div class="status-msg error"><strong>Error:</strong><br><code style="font-size:12px;word-break:break-all">${detail}</code></div>`;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function openManagerView() {
+      managerOverlay.classList.add('open');
+      managerContent.innerHTML = `<div class="status-msg"><span class="spinner"></span>Loading…</div>`;
+
+      try {
+        const events = await usageCollection.find();
+
+        if (!events.length) {
+          managerContent.innerHTML = `<div class="status-msg">No usage recorded yet.</div>`;
+          return;
+        }
+
+        // Count by user
+        const counts = {};
+        for (const e of events) {
+          const key = e.user_name || e.user_email || 'Unknown';
+          counts[key] = (counts[key] || 0) + 1;
+        }
+
+        const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+        const max = sorted[0][1];
+
+        const bars = sorted.map(([name, count]) => `
+          <div class="bar-row">
+            <div class="bar-label" title="${name}">${name}</div>
+            <div class="bar-track">
+              <div class="bar-fill" style="width:${Math.round((count / max) * 100)}%"></div>
+            </div>
+            <div class="bar-count">${count}</div>
+          </div>`).join('');
+
+        managerContent.innerHTML = bars;
+      } catch (err) {
+        managerContent.innerHTML = `<div class="status-msg error">Failed to load usage data.</div>`;
+      }
+    }
+
+    managerBtn.addEventListener('click', openManagerView);
+    closeManagerBtn.addEventListener('click', () => managerOverlay.classList.remove('open'));
+    managerOverlay.addEventListener('click', e => { if (e.target === managerOverlay) managerOverlay.classList.remove('open'); });
+
+    btn.addEventListener('click', lookup);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') lookup(); });
+  </script>
+</body>
+</html>
