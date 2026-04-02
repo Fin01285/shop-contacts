@@ -1,7 +1,7 @@
-# Storefront Contacts — Claude Instructions
+# ShopID Contacts — Claude Instructions
 
 ## Project overview
-Single-file Quick app (`index.html`) deployed at https://storefront-contacts.quick.shopify.io. Looks up store staff/contacts from BigQuery by Storefront ID. All HTML, CSS, and JavaScript lives in `index.html`.
+Single-file Quick app (`index.html`) deployed at https://shopid-contacts.quick.shopify.io. Looks up store staff/contacts from BigQuery by Storefront ID. All HTML, CSS, and JavaScript lives in `index.html`.
 
 ## Architecture
 - **Platform:** Quick (Shopify's internal static hosting). Uses `quick.js` client for BigQuery access via `quick.dw.querySync()`.
@@ -10,7 +10,7 @@ Single-file Quick app (`index.html`) deployed at https://storefront-contacts.qui
 
 ## Deploying
 ```bash
-quick deploy /Users/fingordon/storefront-contacts-quick storefront-contacts -f
+quick deploy "/Users/fingordon/Contact-search-quick " shopid-contacts -f
 ```
 
 ## BigQuery tables
