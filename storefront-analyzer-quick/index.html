@@ -40,21 +40,49 @@
       padding: 24px;
       display: flex;
       gap: 12px;
-      align-items: center;
+      align-items: flex-start;
       margin-bottom: 32px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
-    .search-bar input {
+    .search-bar textarea {
       flex: 1;
       border: 1px solid #c9cccf;
       border-radius: 8px;
       padding: 10px 14px;
       font-size: 15px;
+      font-family: inherit;
+      line-height: 1.5;
       outline: none;
+      resize: vertical;
+      min-height: 42px;
       transition: border-color 0.15s;
     }
-    .search-bar input:focus { border-color: #008060; box-shadow: 0 0 0 3px rgba(0,128,96,0.12); }
-    .search-bar input::placeholder { color: #8c9196; }
+    .search-bar textarea:focus { border-color: #008060; box-shadow: 0 0 0 3px rgba(0,128,96,0.12); }
+    .search-bar textarea::placeholder { color: #8c9196; }
+
+    .tab-bar {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 16px;
+      border-bottom: 2px solid #e1e3e5;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #6d7175;
+      cursor: pointer;
+      white-space: nowrap;
+      border-radius: 4px 4px 0 0;
+      transition: color 0.15s;
+    }
+    .tab-btn:hover { color: #202223; background: #f6f6f7; }
+    .tab-btn.active { color: #008060; border-bottom-color: #008060; }
 
     .btn {
       background: #008060;
@@ -245,8 +273,12 @@
     <button class="btn" onclick="authorise()">Connect BigQuery</button>
   </div>
 
+  <div style="background:#fff;border:1px solid #e1e3e5;border-radius:12px;padding:16px 24px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.06);font-size:14px;color:#6d7175;line-height:1.6;">
+    Enter one or more Storefront IDs to pull 12 months of payment and conversion data. <strong style="color:#202223;">Up to 5 shops</strong> can be analysed at once — separate them with commas or put each on a new line. Click <strong style="color:#202223;">Run Analysis</strong> or press <kbd style="background:#f6f6f7;border:1px solid #c9cccf;border-radius:4px;padding:1px 5px;font-size:12px;">⌘ Return</kbd> to start. Results appear in tabs when multiple shops are entered.
+  </div>
+
   <div class="search-bar">
-    <input id="shop-input" type="text" placeholder="Enter Storefront ID — e.g. 73066479944" />
+    <textarea id="shop-input" rows="2" placeholder="Enter Storefront ID(s) — one per line or comma-separated (max 5)"></textarea>
     <button class="btn" id="run-btn" onclick="runAnalysis()">Run Analysis</button>
   </div>
 
@@ -259,15 +291,7 @@
 
   <div id="error-box" style="display:none;"></div>
 
-  <div id="results">
-    <div id="shop-header" class="shop-header"></div>
-    <div id="sec-core"      class="section"></div>
-    <div id="sec-chart"     class="section"></div>
-    <div id="sec-currencies" class="section"></div>
-    <div id="sec-geo"       class="section"></div>
-    <div id="sec-providers" class="section"></div>
-    <div id="sec-payouts"        class="section"></div>
-  </div>
+  <div id="results"></div>
 
 </div>
 
@@ -563,40 +587,46 @@ function makeMetrics(items) {
   ).join('')}</div>`;
 }
 
+// ── Multi-shop helpers ────────────────────────────────────────────────────────
+
+function parseShopIds(raw) {
+  return [...new Set(
+    raw.split(/[\n,]+/).map(s => s.trim()).filter(s => /^\d+$/.test(s))
+  )].slice(0, 5);
+}
+
+function shopPanelHTML() {
+  return `
+    <div class="shop-header"></div>
+    <div class="section sec-core"></div>
+    <div class="section sec-chart"></div>
+    <div class="section sec-currencies"></div>
+    <div class="section sec-geo"></div>
+    <div class="section sec-providers"></div>
+    <div class="section sec-payouts"></div>
+  `;
+}
+
 // ── Main Analysis ─────────────────────────────────────────────────────────────
 
-async function runAnalysis() {
-  const input = document.getElementById('shop-input').value.trim();
-  if (!input) return;
+// Returns the shop name on success, throws on error.
+// container is the DOM element whose .shop-header / .sec-* children receive the rendered HTML.
+async function analyseShop(shopId, container, currentUser) {
+  // Step 1: profile
+  const profileRes = await quick.dw.queryAndWait(sqlShopProfile(shopId));
+  if (!profileRes.results || profileRes.results.length === 0) {
+    throw new Error(`No shop found with ID <strong>${shopId}</strong>.`);
+  }
 
-  const shopId = parseInt(input);
-  if (isNaN(shopId)) { showError('Please enter a valid numeric Storefront ID.'); return; }
-
-  document.getElementById('run-btn').disabled = true;
-  setLoading('Fetching shop profile…');
-
-  // Fetch user identity early so it's ready for usage tracking
-  let currentUser = null;
-  try { currentUser = await quick.id.waitForUser(); } catch(e) { console.warn('id failed', e); }
-
-  try {
-    // Step 1: profile
-    const profileRes = await quick.dw.queryAndWait(sqlShopProfile(shopId));
-    if (!profileRes.results || profileRes.results.length === 0) {
-      showError(`No shop found with ID <strong>${shopId}</strong>.`);
-      document.getElementById('run-btn').disabled = false;
-      return;
-    }
-
-    const profile         = profileRes.results[0];
-    const name            = profile.name;
-    const domain          = profile.domain;
-    const permanentDomain = profile.permanent_domain;
-    const currency = profile.shop_currency;
-    const country  = profile.country_code;
-    const flag     = COUNTRY_FLAGS[country] || '';
-    const countryName = COUNTRY_NAMES[country] || country;
-    const s        = sym(currency);
+  const profile         = profileRes.results[0];
+  const name            = profile.name;
+  const domain          = profile.domain;
+  const permanentDomain = profile.permanent_domain;
+  const currency = profile.shop_currency;
+  const country  = profile.country_code;
+  const flag     = COUNTRY_FLAGS[country] || '';
+  const countryName = COUNTRY_NAMES[country] || country;
+  const s        = sym(currency);
     const planRaw  = profile.subscription_plan_name;
     const planLabel = planRaw ? (PLAN_DISPLAY[planRaw] || planRaw.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())) : null;
 
@@ -608,11 +638,6 @@ async function runAnalysis() {
       ? (tenureYears > 0 ? `${tenureYears}y ${tenureRem}m` : `${tenureMonths}m`)
       : '—';
     const createdMonth = profile.created_month || '—';
-
-    // Header (rendered after SP check below)
-    // placeholder — filled in after parallel queries
-
-    setLoading('Running queries…');
 
     // Step 2: parallel queries
     const [gmvRes, sessRes, spCurrRes, spGeoRes, provRes, payoutsRes,
@@ -627,9 +652,6 @@ async function runAnalysis() {
       quick.dw.queryAndWait(sqlTxnBillingFees(shopId, currency)),
       quick.dw.queryAndWait(sqlMonthlyGmv(shopId, currency)),
     ]);
-
-    hideLoading();
-    document.getElementById('results').style.display = 'block';
 
     // ── Usage tracking ────────────────────────────────────────────────────────
     try {
@@ -652,7 +674,7 @@ async function runAnalysis() {
       ? `<span class="badge badge-blue">${planLabel}</span>`
       : '';
 
-    document.getElementById('shop-header').innerHTML = `
+    container.querySelector('.shop-header').innerHTML = `
       <h2>${name} &nbsp;·&nbsp; ${flag} ${countryName} &nbsp;·&nbsp; ${currency} &nbsp; ${spBadge} ${planBadge}</h2>
       <p><a href="https://${permanentDomain}" target="_blank">${permanentDomain}</a> &nbsp;·&nbsp; <a href="https://${domain}" target="_blank">${domain}</a> &nbsp;·&nbsp; <a href="https://app.shopify.com/services/internal/shops/${shopId}" target="_blank">Service Internal</a> &nbsp;·&nbsp; Shop ID: ${shopId}</p>
     `;
@@ -670,7 +692,7 @@ async function runAnalysis() {
     const sessCheckout  = Number(sess.sessions_checkout);
     const sessConverted = Number(sess.sessions_converted);
 
-    document.getElementById('sec-core').innerHTML = `
+    container.querySelector('.sec-core').innerHTML = `
       <h3>Core Metrics</h3>
       ${makeMetrics([
         { label: 'Total Turnover',       value: fmtMoney(totalTurnover, currency) },
@@ -724,13 +746,14 @@ async function runAnalysis() {
     const chartLabels = monthlyRows.map(r => r.month_label);
     const chartData = monthlyRows.map(r => Number(r.gmv_local));
 
-    document.getElementById('sec-chart').innerHTML = `
+    const canvasId = `turnover-chart-${shopId}`;
+    container.querySelector('.sec-chart').innerHTML = `
       <h3>Monthly Turnover — Last 12 Months</h3>
-      <canvas id="turnover-chart" height="100"></canvas>
+      <canvas id="${canvasId}" height="100"></canvas>
     `;
 
-    if (window._turnoverChart) window._turnoverChart.destroy();
-    window._turnoverChart = new Chart(document.getElementById('turnover-chart'), {
+    if (container._chart) container._chart.destroy();
+    container._chart = new Chart(document.getElementById(canvasId), {
       type: 'bar',
       data: {
         labels: chartLabels,
@@ -808,7 +831,7 @@ async function runAnalysis() {
       }
     }
 
-    document.getElementById('sec-currencies').innerHTML = `
+    container.querySelector('.sec-currencies').innerHTML = `
       <h3>Shopify Payments — Presentment Currencies</h3>
       <p class="caption">Volumes are the actual local currency amounts charged at transaction time. The All Payment Providers table converts from USD using today's spot rate, so figures will differ due to FX rate movements over the year — this is expected and not a data error.</p>
       ${spCurrHtml}
@@ -849,7 +872,7 @@ async function runAnalysis() {
       }
     }
 
-    document.getElementById('sec-geo').innerHTML = `
+    container.querySelector('.sec-geo').innerHTML = `
       <h3>Shopify Payments — Geographic Breakdown</h3>
       <p class="caption">Volumes are the actual local currency amounts charged at transaction time. The All Payment Providers table converts from USD using today's spot rate, so figures will differ due to FX rate movements over the year — this is expected and not a data error.</p>
       ${spGeoHtml}
@@ -956,7 +979,7 @@ async function runAnalysis() {
       ? `<div class="alert alert-success">✅ Reconciles to total turnover of <strong>${fmtMoney(totalTurnover, currency)}</strong> (${s}${diff.toLocaleString('en', {maximumFractionDigits:0})} difference due to FX rounding).</div>`
       : `<div class="alert alert-warning">⚠️ Gap of ${s}${diff.toLocaleString('en', {maximumFractionDigits:0})} vs total turnover — there may be payment methods not captured in the GMV table.</div>`;
 
-    document.getElementById('sec-providers').innerHTML = `
+    container.querySelector('.sec-providers').innerHTML = `
       <h3>All Payment Providers</h3>
       ${makeTable(
         ['Provider', 'Orders', `Volume (${currency})`, '% of Turnover'],
@@ -1013,14 +1036,87 @@ async function runAnalysis() {
       payoutsHtml = statusHtml + currentHtml;
     }
 
-    document.getElementById('sec-payouts').innerHTML = `
+    container.querySelector('.sec-payouts').innerHTML = `
       <h3>Multi-Currency Payouts</h3>
       ${payoutsHtml}
     `;
 
 
-  } catch (err) {
-    showError(`Query failed: ${err.message || err}`);
+  return name;
+}
+
+async function runAnalysis() {
+  const raw = document.getElementById('shop-input').value;
+  const shopIds = parseShopIds(raw);
+
+  if (shopIds.length === 0) {
+    showError('Please enter at least one valid numeric Storefront ID.');
+    return;
+  }
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('error-box').style.display = 'none';
+
+  let currentUser = null;
+  try { currentUser = await quick.id.waitForUser(); } catch(e) { console.warn('id failed', e); }
+
+  const resultsEl = document.getElementById('results');
+
+  if (shopIds.length === 1) {
+    // Single shop — same UX as before (global loading spinner)
+    setLoading('Fetching shop profile…');
+    resultsEl.innerHTML = shopPanelHTML();
+
+    try {
+      await analyseShop(shopIds[0], resultsEl, currentUser);
+      hideLoading();
+      resultsEl.style.display = 'block';
+    } catch (err) {
+      showError(`${err.message || err}`);
+    }
+  } else {
+    // Multiple shops — tab UI, each panel has its own spinner
+    document.getElementById('loading').style.display = 'none';
+    resultsEl.style.display = 'block';
+    resultsEl.innerHTML = `<div class="tab-bar" id="tab-bar"></div><div id="tab-panels"></div>`;
+
+    const tabBar    = document.getElementById('tab-bar');
+    const tabPanels = document.getElementById('tab-panels');
+
+    // Build all tabs + panels upfront with loading spinners
+    const entries = shopIds.map((shopId, i) => {
+      const tabBtn = document.createElement('button');
+      tabBtn.className = 'tab-btn' + (i === 0 ? ' active' : '');
+      tabBtn.textContent = String(shopId);
+      tabBar.appendChild(tabBtn);
+
+      const panel = document.createElement('div');
+      panel.className = 'shop-panel';
+      panel.style.display = i === 0 ? '' : 'none';
+      panel.innerHTML = `<div class="spinner-wrap"><div class="spinner"></div><p>Loading ${shopId}…</p></div>`;
+      tabPanels.appendChild(panel);
+
+      tabBtn.onclick = () => {
+        tabBar.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        tabBtn.classList.add('active');
+        Array.from(tabPanels.children).forEach(p => p.style.display = 'none');
+        panel.style.display = '';
+      };
+
+      return { shopId, tabBtn, panel };
+    });
+
+    // Run analyses sequentially
+    for (const { shopId, tabBtn, panel } of entries) {
+      panel.innerHTML = shopPanelHTML();
+      try {
+        const name = await analyseShop(shopId, panel, currentUser);
+        tabBtn.textContent = name || String(shopId);
+      } catch (err) {
+        panel.innerHTML = `<div class="alert alert-error" style="margin:0;">⚠️ ${err.message || err}</div>`;
+        tabBtn.textContent = String(shopId) + ' ⚠️';
+      }
+    }
   }
 
   document.getElementById('run-btn').disabled = false;
@@ -1029,7 +1125,7 @@ async function runAnalysis() {
 // ── Keyboard shortcut ─────────────────────────────────────────────────────────
 
 document.getElementById('shop-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') runAnalysis();
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runAnalysis();
 });
 
 // ── Init ──────────────────────────────────────────────────────────────────────
