@@ -354,6 +354,15 @@
     const btn = document.getElementById('lookupBtn');
     const results = document.getElementById('results');
 
+    function formatError(err) {
+      const msg = err?.message || err?.error?.message || JSON.stringify(err);
+      if (msg.includes('policy tag') || msg.includes('accessDenied') || msg.includes('OTHER_INDIRECT_IDENTIFIER') || msg.includes('EMAIL_ADDRESS')) {
+        return `Your <strong>SDP-PII permit has expired</strong> or is not active. This permit is required to access staff contact data and is valid for 8 hours.
+          <br><br><a href="https://clouddo.shopify.io/permits?claim=sdp-pii" target="_blank" style="color:#721c24;font-weight:600;">Apply for the SDP-PII permit →</a>`;
+      }
+      return `<code style="font-size:12px;word-break:break-all">${msg}</code>`;
+    }
+
     function parseShopIds(raw) {
       return [...new Set(
         raw.split(/[\n,]+/).map(s => s.trim()).filter(s => /^\d+$/.test(s))
@@ -525,8 +534,7 @@
           await lookupShop(shopIds[0], results, currentUser);
         } catch (err) {
           console.error('BQ error:', err);
-          const detail = err?.message || err?.error?.message || JSON.stringify(err);
-          results.innerHTML = `<div class="status-msg error"><strong>Error:</strong><br><code style="font-size:12px;word-break:break-all">${detail}</code></div>`;
+          results.innerHTML = `<div class="status-msg error"><strong>Error:</strong><br>${formatError(err)}</div>`;
         }
       } else {
         // Multi-shop: tab UI
@@ -561,8 +569,7 @@
             tabBtn.textContent = name || String(shopId);
           } catch (err) {
             console.error('BQ error:', err);
-            const detail = err?.message || err?.error?.message || JSON.stringify(err);
-            panel.innerHTML = `<div class="status-msg error"><strong>Error:</strong><br><code style="font-size:12px;word-break:break-all">${detail}</code></div>`;
+            panel.innerHTML = `<div class="status-msg error"><strong>Error:</strong><br>${formatError(err)}</div>`;
             tabBtn.textContent = String(shopId) + ' ⚠️';
           }
         }
