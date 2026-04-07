@@ -52,21 +52,49 @@
       padding: 24px;
       display: flex;
       gap: 12px;
-      align-items: center;
+      align-items: flex-start;
       margin-bottom: 32px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.06);
     }
-    .search-bar input {
+    .search-bar textarea {
       flex: 1;
       border: 1px solid #c9cccf;
       border-radius: 8px;
       padding: 10px 14px;
       font-size: 15px;
+      font-family: inherit;
+      line-height: 1.5;
       outline: none;
+      resize: vertical;
+      min-height: 42px;
       transition: border-color 0.15s;
     }
-    .search-bar input:focus { border-color: #008060; box-shadow: 0 0 0 3px rgba(0,128,96,0.12); }
-    .search-bar input::placeholder { color: #8c9196; }
+    .search-bar textarea:focus { border-color: #008060; box-shadow: 0 0 0 3px rgba(0,128,96,0.12); }
+    .search-bar textarea::placeholder { color: #8c9196; }
+
+    .tab-bar {
+      display: flex;
+      gap: 4px;
+      margin-bottom: 16px;
+      border-bottom: 2px solid #e1e3e5;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      padding: 10px 16px;
+      font-size: 14px;
+      font-weight: 500;
+      color: #6d7175;
+      cursor: pointer;
+      white-space: nowrap;
+      border-radius: 4px 4px 0 0;
+      transition: color 0.15s;
+    }
+    .tab-btn:hover { color: #202223; background: #f6f6f7; }
+    .tab-btn.active { color: #008060; border-bottom-color: #008060; }
 
     .btn {
       background: #008060;
@@ -299,8 +327,12 @@
       <a href="https://clouddo.shopify.io/permits?claim=sdp-pii" target="_blank" style="color:#008060;font-weight:500;">Apply for the SDP-PII permit →</a>
     </div>
 
+    <div style="background:#fff;border:1px solid #e1e3e5;border-radius:12px;padding:16px 24px;margin-bottom:20px;box-shadow:0 1px 3px rgba(0,0,0,0.06);font-size:14px;color:#6d7175;line-height:1.6;">
+      Enter one or more Storefront IDs to look up shop contacts. <strong style="color:#202223;">Up to 5 shops</strong> can be searched at once — separate them with commas or put each on a new line. Click <strong style="color:#202223;">Look up</strong> or press <kbd style="background:#f6f6f7;border:1px solid #c9cccf;border-radius:4px;padding:1px 5px;font-size:12px;">⌘ Return</kbd> to start. Results appear in tabs when multiple shops are entered.
+    </div>
+
     <div class="search-bar">
-      <input id="shopId" type="text" placeholder="Enter Storefront ID (e.g. 80483451215)" autocomplete="off" />
+      <textarea id="shopId" rows="2" placeholder="Enter Storefront ID(s) — one per line or comma-separated (max 5)"></textarea>
       <button class="btn" id="lookupBtn">Look up</button>
     </div>
     <div id="results"></div>
@@ -321,6 +353,12 @@
     const input = document.getElementById('shopId');
     const btn = document.getElementById('lookupBtn');
     const results = document.getElementById('results');
+
+    function parseShopIds(raw) {
+      return [...new Set(
+        raw.split(/[\n,]+/).map(s => s.trim()).filter(s => /^\d+$/.test(s))
+      )].slice(0, 5);
+    }
     const managerBtn = document.getElementById('managerBtn');
     const managerOverlay = document.getElementById('managerOverlay');
     const closeManagerBtn = document.getElementById('closeManagerBtn');
@@ -392,94 +430,145 @@
 
     let ownerCopyIndex = 0;
 
+    // Returns shop name on success; writes HTML into container; throws on error.
+    async function lookupShop(shopId, container, currentUser) {
+      const shopIdInt = parseInt(shopId, 10);
+      const table = '`shopify-dw.accounts_and_administration.admin_shop_users_history`';
+      const profileTable = '`shopify-dw.accounts_and_administration.shop_profile_current`';
+
+      const [ownerResult, contactsResult, profileResult] = await Promise.all([
+        quick.dw.queryAndWait(
+          `SELECT first_name, last_name, email, is_account_owner, user_type
+           FROM ${table}
+           WHERE shop_id = ${shopIdInt}
+             AND is_account_owner = TRUE
+           GROUP BY first_name, last_name, email, is_account_owner, user_type
+           LIMIT 1`
+        ),
+        quick.dw.queryAndWait(
+          `SELECT first_name, last_name, email, is_account_owner, user_type
+           FROM ${table}
+           WHERE shop_id = ${shopIdInt}
+             AND is_account_owner = FALSE
+           GROUP BY first_name, last_name, email, is_account_owner, user_type
+           ORDER BY MAX(last_login_at) DESC
+           LIMIT 5`
+        ),
+        quick.dw.queryAndWait(
+          `SELECT name
+           FROM ${profileTable}
+           WHERE shop_id = ${shopIdInt}
+           LIMIT 1`
+        ),
+      ]);
+
+      const ownerRows   = ownerResult.results || [];
+      const contactRows = contactsResult.results || [];
+      const shopName    = profileResult.results?.[0]?.name || null;
+
+      if (!ownerRows.length && !contactRows.length) {
+        throw new Error(`No staff found for storefront ID <strong>${shopId}</strong>.`);
+      }
+
+      // Log usage
+      if (currentUser) {
+        usageCollection.create({
+          user_email: currentUser.email,
+          user_name:  currentUser.fullName || currentUser.email,
+          shop_id:    shopId,
+          ts:         Date.now(),
+        }).catch(() => {});
+      }
+
+      function mapRow(row) {
+        const name = [row.first_name, row.last_name].filter(Boolean).join(' ') || null;
+        return {
+          name:         name,
+          email:        row.email || null,
+          account_type: row.is_account_owner ? 'owner' : (row.user_type || 'staff'),
+        };
+      }
+
+      const ownerRow = ownerRows.length ? mapRow(ownerRows[0]) : null;
+      const contacts = contactRows.map(mapRow);
+
+      const internalUrl = `https://app.shopify.com/services/internal/shops/${shopId}`;
+      container.innerHTML =
+        `<div style="margin-bottom:24px;">
+          ${shopName ? `<h2 style="font-size:20px;font-weight:700;margin-bottom:6px;">${shopName}</h2>` : ''}
+          <a href="${internalUrl}" target="_blank" style="color:#008060;font-weight:500;font-size:14px;">View merchant internal →</a>
+        </div>` +
+        (ownerRow ? renderOwner(ownerRow) : '') +
+        renderContacts(contacts);
+
+      return shopName || String(shopId);
+    }
+
     async function lookup() {
-      const shopId = input.value.trim();
-      if (!shopId) return;
+      const raw = input.value;
+      const shopIds = parseShopIds(raw);
+
+      if (!shopIds.length) return;
 
       ownerCopyIndex = 0;
       window._copyRows = {};
       btn.disabled = true;
-      results.innerHTML = `<div class="status-msg"><span class="spinner"></span>Looking up contacts…</div>`;
 
-      try {
-        await quick.auth.requestScopes(['https://www.googleapis.com/auth/bigquery']);
+      await quick.auth.requestScopes(['https://www.googleapis.com/auth/bigquery']);
 
-        const shopIdInt = parseInt(shopId, 10);
-        const table = '`shopify-dw.accounts_and_administration.admin_shop_users_history`';
-        const profileTable = '`shopify-dw.accounts_and_administration.shop_profile_current`';
+      let currentUser = null;
+      try { currentUser = await quick.id.waitForUser(); } catch(e) {}
 
-        const [ownerResult, contactsResult, profileResult] = await Promise.all([
-          quick.dw.queryAndWait(
-            `SELECT first_name, last_name, email, is_account_owner, user_type
-             FROM ${table}
-             WHERE shop_id = ${shopIdInt}
-               AND is_account_owner = TRUE
-             GROUP BY first_name, last_name, email, is_account_owner, user_type
-             LIMIT 1`
-          ),
-          quick.dw.queryAndWait(
-            `SELECT first_name, last_name, email, is_account_owner, user_type
-             FROM ${table}
-             WHERE shop_id = ${shopIdInt}
-               AND is_account_owner = FALSE
-             GROUP BY first_name, last_name, email, is_account_owner, user_type
-             ORDER BY MAX(last_login_at) DESC
-             LIMIT 5`
-          ),
-          quick.dw.queryAndWait(
-            `SELECT name
-             FROM ${profileTable}
-             WHERE shop_id = ${shopIdInt}
-             LIMIT 1`
-          ),
-        ]);
-
-        const ownerRows = ownerResult.results || [];
-        const contactRows = contactsResult.results || [];
-        const shopName = profileResult.results?.[0]?.name || null;
-
-        if (!ownerRows.length && !contactRows.length) {
-          results.innerHTML = `<div class="status-msg error">No staff found for storefront ID <strong>${shopId}</strong>.</div>`;
-          return;
+      if (shopIds.length === 1) {
+        results.innerHTML = `<div class="status-msg"><span class="spinner"></span>Looking up contacts…</div>`;
+        try {
+          await lookupShop(shopIds[0], results, currentUser);
+        } catch (err) {
+          console.error('BQ error:', err);
+          const detail = err?.message || err?.error?.message || JSON.stringify(err);
+          results.innerHTML = `<div class="status-msg error"><strong>Error:</strong><br><code style="font-size:12px;word-break:break-all">${detail}</code></div>`;
         }
+      } else {
+        // Multi-shop: tab UI
+        results.innerHTML = `<div class="tab-bar" id="tab-bar"></div><div id="tab-panels"></div>`;
+        const tabBar    = document.getElementById('tab-bar');
+        const tabPanels = document.getElementById('tab-panels');
 
-        // Log usage
-        const user = await quick.id.waitForUser();
-        usageCollection.create({
-          user_email: user.email,
-          user_name:  user.fullName || user.email,
-          shop_id:    shopId,
-          ts:         Date.now(),
-        }).catch(() => {});
+        const entries = shopIds.map((shopId, i) => {
+          const tabBtn = document.createElement('button');
+          tabBtn.className = 'tab-btn' + (i === 0 ? ' active' : '');
+          tabBtn.textContent = String(shopId);
+          tabBar.appendChild(tabBtn);
 
-        function mapRow(row) {
-          const name = [row.first_name, row.last_name].filter(Boolean).join(' ') || null;
-          return {
-            name:         name,
-            email:        row.email || null,
-            account_type: row.is_account_owner ? 'owner' : (row.user_type || 'staff'),
+          const panel = document.createElement('div');
+          panel.style.display = i === 0 ? '' : 'none';
+          panel.innerHTML = `<div class="status-msg"><span class="spinner"></span>Loading ${shopId}…</div>`;
+          tabPanels.appendChild(panel);
+
+          tabBtn.onclick = () => {
+            tabBar.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            tabBtn.classList.add('active');
+            Array.from(tabPanels.children).forEach(p => p.style.display = 'none');
+            panel.style.display = '';
           };
+
+          return { shopId, tabBtn, panel };
+        });
+
+        for (const { shopId, tabBtn, panel } of entries) {
+          try {
+            const name = await lookupShop(shopId, panel, currentUser);
+            tabBtn.textContent = name || String(shopId);
+          } catch (err) {
+            console.error('BQ error:', err);
+            const detail = err?.message || err?.error?.message || JSON.stringify(err);
+            panel.innerHTML = `<div class="status-msg error"><strong>Error:</strong><br><code style="font-size:12px;word-break:break-all">${detail}</code></div>`;
+            tabBtn.textContent = String(shopId) + ' ⚠️';
+          }
         }
-
-        const ownerRow = ownerRows.length ? mapRow(ownerRows[0]) : null;
-        const contacts = contactRows.map(mapRow);
-
-        const internalUrl = `https://app.shopify.com/services/internal/shops/${shopId}`;
-        results.innerHTML =
-          `<div style="margin-bottom:24px;">
-            ${shopName ? `<h2 style="font-size:20px;font-weight:700;margin-bottom:6px;">${shopName}</h2>` : ''}
-            <a href="${internalUrl}" target="_blank" style="color:#008060;font-weight:500;font-size:14px;">View merchant internal →</a>
-          </div>` +
-          (ownerRow ? renderOwner(ownerRow) : '') +
-          renderContacts(contacts);
-
-      } catch (err) {
-        console.error('BQ error:', err);
-        const detail = err?.message || err?.error?.message || JSON.stringify(err);
-        results.innerHTML = `<div class="status-msg error"><strong>Error:</strong><br><code style="font-size:12px;word-break:break-all">${detail}</code></div>`;
-      } finally {
-        btn.disabled = false;
       }
+
+      btn.disabled = false;
     }
 
     async function openManagerView() {
@@ -524,7 +613,7 @@
     managerOverlay.addEventListener('click', e => { if (e.target === managerOverlay) managerOverlay.classList.remove('open'); });
 
     btn.addEventListener('click', lookup);
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') lookup(); });
+    input.addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) lookup(); });
   </script>
 </body>
 </html>
