@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="quick" content="yesindex">
+  <title>Storefront Analyzer — Manager View</title>
+  <script src="/client/quick.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f6f6f7;
+      color: #202223;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #e1e3e5;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    header h1 { font-size: 18px; font-weight: 600; }
+    header a { font-size: 14px; color: #008060; text-decoration: none; }
+    header a:hover { text-decoration: underline; }
+
+    .main { max-width: 1000px; margin: 0 auto; padding: 32px 24px; }
+
+    .section {
+      background: #fff;
+      border: 1px solid #e1e3e5;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    .section h3 {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid #e1e3e5;
+    }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .metric-card {
+      background: #f6f6f7;
+      border-radius: 8px;
+      padding: 16px;
+      text-align: center;
+    }
+    .metric-card .label { font-size: 12px; color: #6d7175; margin-bottom: 6px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+    .metric-card .value { font-size: 26px; font-weight: 700; color: #202223; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th {
+      text-align: left;
+      padding: 10px 12px;
+      background: #f6f6f7;
+      font-weight: 600;
+      font-size: 13px;
+      color: #6d7175;
+      border-bottom: 1px solid #e1e3e5;
+    }
+    td { padding: 10px 12px; border-bottom: 1px solid #f1f2f3; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafbfb; }
+
+    .avatar {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      margin-right: 8px;
+      vertical-align: middle;
+      object-fit: cover;
+      background: #e1e3e5;
+    }
+    .user-cell { display: flex; align-items: center; }
+
+    .spinner-wrap { text-align: center; padding: 48px 0; color: #6d7175; }
+    .spinner {
+      display: inline-block; width: 32px; height: 32px;
+      border: 3px solid #e1e3e5; border-top-color: #008060;
+      border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .bar-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid #f1f2f3;
+    }
+    .bar-row:last-child { border-bottom: none; }
+    .bar-user { display: flex; align-items: center; gap: 8px; min-width: 200px; }
+    .bar-user .name { font-weight: 500; font-size: 14px; }
+    .bar-user .email { font-size: 12px; color: #6d7175; }
+    .bar-track { flex: 1; background: #f6f6f7; border-radius: 4px; height: 20px; overflow: hidden; }
+    .bar-fill { height: 100%; background: #008060; border-radius: 4px; transition: width 0.4s ease; }
+    .bar-count { font-size: 14px; font-weight: 600; min-width: 32px; text-align: right; color: #202223; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📊 Storefront Analyzer — Manager View</h1>
+  <a href="/">← Back to Analyzer</a>
+</header>
+
+<div class="main">
+  <div id="loading" class="section">
+    <div class="spinner-wrap">
+      <div class="spinner"></div>
+      <p>Loading usage data…</p>
+    </div>
+  </div>
+
+  <div id="content" style="display:none;">
+    <div class="metrics-grid" id="summary-metrics"></div>
+
+    <div class="section">
+      <h3>Usage by Person</h3>
+      <div id="users-chart"></div>
+    </div>
+
+    <div class="section">
+      <h3>Recent Activity</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Storefront</th>
+            <th>Shop ID</th>
+            <th>When</th>
+          </tr>
+        </thead>
+        <tbody id="recent-table"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+async function load() {
+  const usageCol = quick.db.collection('usage');
+
+  // Fetch all records ordered by most recent first
+  const all = await usageCol.orderBy('ran_at', 'desc').find();
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('content').style.display = 'block';
+
+  if (!all || all.length === 0) {
+    document.getElementById('content').innerHTML = '<div class="section"><p style="color:#6d7175;">No usage data yet.</p></div>';
+    return;
+  }
+
+  // ── Summary metrics ───────────────────────────────────────────────────────
+  const totalRuns   = all.length;
+  const uniqueUsers = new Set(all.map(r => r.email)).size;
+  const uniqueShops = new Set(all.map(r => String(r.shop_id))).size;
+
+  document.getElementById('summary-metrics').innerHTML = `
+    <div class="metric-card"><div class="label">Total Analyses Run</div><div class="value">${totalRuns}</div></div>
+    <div class="metric-card"><div class="label">Unique Users</div><div class="value">${uniqueUsers}</div></div>
+    <div class="metric-card"><div class="label">Unique Storefronts</div><div class="value">${uniqueShops}</div></div>
+  `;
+
+  // ── Per-user aggregation ──────────────────────────────────────────────────
+  const byUser = {};
+  for (const r of all) {
+    if (!byUser[r.email]) {
+      byUser[r.email] = { name: r.name, email: r.email, count: 0, lastUsed: r.ran_at, shops: new Set() };
+    }
+    byUser[r.email].count++;
+    if (r.ran_at > byUser[r.email].lastUsed) byUser[r.email].lastUsed = r.ran_at;
+    if (r.shop_name) byUser[r.email].shops.add(`${r.shop_name} (${r.shop_id})`);
+  }
+
+  const userRows = Object.values(byUser).sort((a, b) => b.count - a.count);
+
+  const maxCount = userRows[0].count;
+  document.getElementById('users-chart').innerHTML = userRows.map(u => {
+    const pct = Math.round((u.count / maxCount) * 100);
+    return `
+      <div class="bar-row">
+        <div class="bar-user">
+          <img class="avatar" src="https://lh3.googleusercontent.com/a/${u.email}" onerror="this.style.display='none'">
+          <div>
+            <div class="name">${u.name}</div>
+            <div class="email">${u.email}</div>
+          </div>
+        </div>
+        <div class="bar-track"><div class="bar-fill" style="width:${pct}%"></div></div>
+        <div class="bar-count">${u.count}</div>
+      </div>`;
+  }).join('');
+
+  // ── Recent activity (last 50) ─────────────────────────────────────────────
+  document.getElementById('recent-table').innerHTML = all.slice(0, 50).map(r => `
+    <tr>
+      <td>
+        <div style="font-weight:500;">${r.name}</div>
+        <div style="font-size:12px;color:#6d7175;">${r.email}</div>
+      </td>
+      <td>${r.shop_name || '—'}</td>
+      <td style="font-family:monospace;font-size:13px;">${r.shop_id}</td>
+      <td>${fmtDate(r.ran_at)}</td>
+    </tr>`).join('');
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMs = now - d;
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffMins < 1)    return 'Just now';
+  if (diffMins < 60)   return `${diffMins}m ago`;
+  if (diffHours < 24)  return `${diffHours}h ago`;
+  if (diffDays < 7)    return `${diffDays}d ago`;
+  return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+load().catch(err => {
+  document.getElementById('loading').innerHTML = `<div class="section"><p style="color:#721c24;">Failed to load: ${err.message}</p></div>`;
+});
+</script>
+
+</body>
+</html>
