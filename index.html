@@ -194,6 +194,24 @@
     .copy-btn:hover { border-color: #008060; color: #008060; }
     .copy-btn.copied { border-color: #008060; color: #008060; }
 
+    .sf-btn {
+      background: none;
+      border: 1px solid #0070d2;
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 12px;
+      color: #0070d2;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .sf-btn:hover { background: #0070d2; color: #fff; }
+
     .contacts-list { display: flex; flex-direction: column; gap: 0; }
     .contact-row {
       display: flex;
@@ -379,6 +397,18 @@
       return (name || '?').split(' ').map(p => p[0]).slice(0, 2).join('').toUpperCase();
     }
 
+    const SF_SOURCE_FIELD = 'Source_Most_Recent__c'; // TODO: replace with actual Salesforce field API name
+
+    function salesforceUrl(row, sfAccountId) {
+      const fields = [];
+      if (row.first_name) fields.push(`FirstName=${encodeURIComponent(row.first_name)}`);
+      if (row.last_name)  fields.push(`LastName=${encodeURIComponent(row.last_name)}`);
+      if (row.email)      fields.push(`Email=${encodeURIComponent(row.email)}`);
+      if (sfAccountId)    fields.push(`AccountId=${sfAccountId}`);
+      fields.push(`${SF_SOURCE_FIELD}=Outbound`);
+      return `https://banff.lightning.force.com/lightning/o/Contact/new?defaultFieldValues=${fields.join(',')}`;
+    }
+
     function copyContact(btn, row) {
       const text = [row.name, row.email].filter(Boolean).join('\n');
       navigator.clipboard.writeText(text).then(() => {
@@ -388,10 +418,13 @@
       });
     }
 
-    function renderOwner(row) {
+    function renderOwner(row, sfAccountId) {
       const idx = ownerCopyIndex++;
       window._copyRows = window._copyRows || {};
       window._copyRows[idx] = row;
+      const sfLink = sfAccountId
+        ? `<a class="sf-btn" href="${salesforceUrl(row, sfAccountId)}" target="_blank" rel="noopener">＋ Salesforce</a>`
+        : '';
       return `
         <div class="section">
           <h3>Account Owner</h3>
@@ -404,18 +437,22 @@
                 <span class="badge owner">${row.account_type || 'Owner'}</span>
               </div>
             </div>
+            ${sfLink}
             <button class="copy-btn" onclick="copyContact(this, window._copyRows[${idx}])">Copy</button>
           </div>
         </div>`;
     }
 
-    function renderContacts(rows) {
+    function renderContacts(rows, sfAccountId) {
       if (!rows.length) {
         return `<div class="section"><h3>Recent Contacts</h3><p style="color:#8c9196;font-size:14px;">No other staff found for this storefront.</p></div>`;
       }
       const items = rows.map((row, i) => {
         const idx = ownerCopyIndex++;
         window._copyRows[idx] = row;
+        const sfLink = sfAccountId
+          ? `<a class="sf-btn" href="${salesforceUrl(row, sfAccountId)}" target="_blank" rel="noopener">＋ Salesforce</a>`
+          : '';
         return `
         <div class="contact-row">
           <div class="rank">${i + 1}</div>
@@ -427,6 +464,7 @@
               <span class="badge">${row.account_type || '—'}</span>
             </div>
           </div>
+          ${sfLink}
           <button class="copy-btn" onclick="copyContact(this, window._copyRows[${idx}])">Copy</button>
         </div>`;
       }).join('');
@@ -445,7 +483,7 @@
       const table = '`shopify-dw.accounts_and_administration.admin_shop_users_history`';
       const profileTable = '`shopify-dw.accounts_and_administration.shop_profile_current`';
 
-      const [ownerResult, contactsResult, profileResult] = await Promise.all([
+      const [ownerResult, contactsResult, profileResult, sfResult] = await Promise.all([
         quick.dw.queryAndWait(
           `SELECT first_name, last_name, email, is_account_owner, user_type
            FROM ${table}
@@ -469,11 +507,18 @@
            WHERE shop_id = ${shopIdInt}
            LIMIT 1`
         ),
+        quick.dw.queryAndWait(
+          `SELECT salesforce_account_id
+           FROM \`shopify-dw.sales.shop_to_sales_account_mapping\`
+           WHERE shop_id = ${shopIdInt}
+           LIMIT 1`
+        ),
       ]);
 
       const ownerRows   = ownerResult.results || [];
       const contactRows = contactsResult.results || [];
       const shopName    = profileResult.results?.[0]?.name || null;
+      const sfAccountId = sfResult.results?.[0]?.salesforce_account_id || null;
 
       if (!ownerRows.length && !contactRows.length) {
         throw new Error(`No staff found for storefront ID <strong>${shopId}</strong>.`);
@@ -492,7 +537,9 @@
       function mapRow(row) {
         const name = [row.first_name, row.last_name].filter(Boolean).join(' ') || null;
         return {
-          name:         name,
+          name,
+          first_name:   row.first_name || null,
+          last_name:    row.last_name || null,
           email:        row.email || null,
           account_type: row.is_account_owner ? 'owner' : (row.user_type || 'staff'),
         };
@@ -507,8 +554,8 @@
           ${shopName ? `<h2 style="font-size:20px;font-weight:700;margin-bottom:6px;">${shopName}</h2>` : ''}
           <a href="${internalUrl}" target="_blank" style="color:#008060;font-weight:500;font-size:14px;">View merchant internal →</a>
         </div>` +
-        (ownerRow ? renderOwner(ownerRow) : '') +
-        renderContacts(contacts);
+        (ownerRow ? renderOwner(ownerRow, sfAccountId) : '') +
+        renderContacts(contacts, sfAccountId);
 
       return shopName || String(shopId);
     }
