@@ -18,6 +18,7 @@ quick deploy "/Users/fingordon/Contact-search-quick " shopid-contacts -f
 |---|---|
 | `accounts_and_administration.admin_shop_users_history` | Store staff — account owner and contacts |
 | `accounts_and_administration.shop_profile_current` | Shop name (`name` column) |
+| `accounts_and_administration.identity_account_current` | Fresher login recency (`last_login_at`, `last_seen_at`), joined to staff by `email` |
 
 ### Columns used
 | Column | Description |
@@ -40,9 +41,11 @@ This tool requires the **SDP-PII permit** to access the policy-tagged name and e
 ## Logic
 - Fetches shop name from `shop_profile_current` (`name` column)
 - Identifies the account owner by `is_account_owner = TRUE`
-- Displays up to 5 non-owner contacts ordered by `MAX(last_login_at) DESC`
+- Displays up to 5 non-owner contacts. **Regular users (`user_type = 'RegularUser'`) are prioritised** — the most recently signed-in regular users fill the 5 slots first. Only if there are fewer than 5 regular users do other types (Collaborator, CollaboratorTeamMemberUser, InvitedUser, etc.) fill the remainder. Within each priority group, ordering is by login recency DESC.
 - Selects `first_name`, `last_name`, `email`, `is_account_owner`, `user_type`
-- Last login is not displayed — data in BQ is stale (years behind live DB)
+- **Login recency for ordering** comes from `GREATEST(admin_shop_users_history.last_login_at, identity_account_current.last_login_at, identity_account_current.last_seen_at)`. The `admin_shop_users_history.last_login_at` column alone is NULL for ~58% of current users and years stale for most of the rest, so the query LEFT JOINs `identity_account_current` (CTE `ident`, aggregated `MAX … GROUP BY LOWER(email)` to collapse the ~4% of emails mapping to multiple identities) to recover a much fresher signal — roughly doubles coverage and is current to within hours/days rather than years.
+- Login recency is used only for ordering; it is **not displayed** in the UI.
+- Cost note: the identity join scans ~9.4 GB per lookup (email isn't a clustering key on either table). Acceptable for light internal use. For maximum freshness, the event-level `identity_login_sessions` table exists (bridge via `identity_uuid`) but is heavier and not used.
 - Each successful lookup logs a usage event to `quick.db` collection `usage_events` with `user_email`, `user_name`, `shop_id`, `ts`
 
 ## Manager view

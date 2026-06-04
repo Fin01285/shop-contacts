@@ -493,12 +493,33 @@
            LIMIT 1`
         ),
         quick.dw.queryAndWait(
-          `SELECT first_name, last_name, email, is_account_owner, user_type
-           FROM ${table}
-           WHERE shop_id = ${shopIdInt}
-             AND is_account_owner = FALSE
-           GROUP BY first_name, last_name, email, is_account_owner, user_type
-           ORDER BY MAX(last_login_at) DESC
+          // Login recency: admin_shop_users_history.last_login_at is NULL/stale for
+          // most users, so we recover a fresher signal from identity_account_current
+          // (GREATEST of last_login_at and last_seen_at), matched by email. The MAX …
+          // GROUP BY collapses the ~4% of emails that map to multiple identity accounts.
+          `WITH ident AS (
+             SELECT LOWER(email) AS email_key,
+                    MAX(GREATEST(COALESCE(last_login_at, TIMESTAMP '1970-01-01'),
+                                 COALESCE(last_seen_at,  TIMESTAMP '1970-01-01'))) AS identity_active
+             FROM \`shopify-dw.accounts_and_administration.identity_account_current\`
+             WHERE is_current AND NOT is_deleted AND email IS NOT NULL
+             GROUP BY email_key
+           ),
+           shop_users AS (
+             SELECT first_name, last_name, email, is_account_owner, user_type,
+                    MAX(last_login_at) AS admin_login
+             FROM ${table}
+             WHERE shop_id = ${shopIdInt}
+               AND is_account_owner = FALSE
+             GROUP BY first_name, last_name, email, is_account_owner, user_type
+           )
+           SELECT s.first_name, s.last_name, s.email, s.is_account_owner, s.user_type
+           FROM shop_users s
+           LEFT JOIN ident i ON LOWER(s.email) = i.email_key
+           ORDER BY
+             CASE WHEN s.user_type = 'RegularUser' THEN 0 ELSE 1 END,
+             GREATEST(COALESCE(s.admin_login,    TIMESTAMP '1970-01-01'),
+                      COALESCE(i.identity_active, TIMESTAMP '1970-01-01')) DESC
            LIMIT 5`
         ),
         quick.dw.queryAndWait(
