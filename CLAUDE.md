@@ -52,3 +52,21 @@ This tool requires the **SDP-PII permit** to access the policy-tagged name and e
 - Accessible via the "📊 Manager view" button in the header
 - Opens as an overlay showing a bar chart of total lookups per user, sorted highest to lowest
 - Data comes from the `usage_events` quick.db collection
+
+## Automation
+None. Interactive Quick app.
+
+## Backup
+| | |
+|---|---|
+| Remote | https://github.com/Fin01285/shop-contacts (**public** — see Gotchas) |
+| Back up now | `bash ~/_ops/backup.sh` |
+| Audit only | `bash ~/_ops/backup.sh --check` |
+
+Every project is listed in `~/_ops/projects.txt`. `backup.sh` warns about any project
+folder missing from that list, so a new tool cannot sit unprotected without you being told.
+
+## Repo note
+- **This is the only public repo in the set**, and it documents internal BigQuery table
+  names, column semantics and SDP-PII permit detail. Worth flipping to private:
+  `gh repo edit Fin01285/shop-contacts --visibility private`.
