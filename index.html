@@ -529,9 +529,14 @@
            LIMIT 1`
         ),
         quick.dw.queryAndWait(
-          `SELECT salesforce_account_id
-           FROM \`shopify-dw.sales.shop_to_sales_account_mapping\`
-           WHERE shop_id = ${shopIdInt}
+          // NOTE (2026-07): shop_to_sales_account_mapping dropped salesforce_account_id
+          // (now keys on account_id INT64). Bridge shop_id -> account_id ->
+          // salesforce_account_id via sales_accounts_v2 (account_id is STRING there).
+          `SELECT a.salesforce_account_id
+           FROM \`shopify-dw.sales.shop_to_sales_account_mapping\` m
+           JOIN \`shopify-dw.sales.sales_accounts_v2\` a
+             ON CAST(m.account_id AS STRING) = a.account_id
+           WHERE m.shop_id = ${shopIdInt}
            LIMIT 1`
         ),
       ]);
